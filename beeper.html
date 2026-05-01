@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Beeper — Interval Reminder</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: rgba(23, 26, 33, 0.82);
+    --panel-2: #1e2230;
+    --border: #2a2f3d;
+    --text: #e7ecf3;
+    --muted: #8a93a6;
+    --accent: #6aa3ff;
+    --accent-2: #4f87e6;
+    --good: #4ade80;
+    --bad: #f87171;
+    --spotify: #1db954;
+    --shadow: 0 10px 30px rgba(0,0,0,0.45);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Pixel-art canvas behind everything */
+  #pixelBg {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    display: grid;
+    place-items: center;
+    box-shadow: var(--shadow);
+  }
+  .logo svg { width: 22px; height: 22px; color: white; }
+
+  h1 {
+    font-size: 20px;
+    margin: 0;
+    letter-spacing: 0.2px;
+  }
+  .subtitle { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .card {
+    background: var(--panel);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+    margin-bottom: 16px;
+  }
+
+  .timer-wrap {
+    position: relative;
+    padding: 28px 12px 12px;
+    border-radius: 14px;
+    overflow: hidden;
+    background:
+      radial-gradient(600px 200px at 50% -20%, rgba(106,163,255,0.12), transparent 70%),
+      rgba(15, 17, 21, 0.45);
+    border: 1px solid var(--border);
+  }
+
+  /* Visualizer canvas inside the timer card */
+  #waveCanvas {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    width: 100%;
+    height: 64px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    opacity: 0.85;
+    pointer-events: none;
+  }
+
+  .timer {
+    display: grid;
+    place-items: center;
+    position: relative;
+    z-index: 1;
+  }
+  .timer .display {
+    font-variant-numeric: tabular-nums;
+    font-size: 64px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    line-height: 1;
+    margin-bottom: 6px;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  }
+  .timer .meta {
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .pill {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .status-dot.running { background: var(--good); box-shadow: 0 0 0 4px rgba(74,222,128,0.15); }
+  .status-dot.stopped { background: var(--bad); }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 12px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  button:hover { background: #232838; }
+  button:active { transform: translateY(1px); }
+  button.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-color: transparent;
+    color: white;
+    font-weight: 600;
+  }
+  button.primary:hover { filter: brightness(1.05); }
+  button.danger { color: #ffd5d5; }
+  button.danger:hover { background: #2a1f24; border-color: #4a2a32; }
+  button.spotify {
+    background: var(--spotify);
+    border-color: transparent;
+    color: white;
+    font-weight: 600;
+  }
+  button.spotify:hover { background: #1ed760; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .settings {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field.full { grid-column: 1 / -1; }
+  label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  input[type="number"], input[type="text"], select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+    outline: none;
+    transition: border-color 0.15s ease;
+    width: 100%;
+  }
+  input[type="number"]:focus, input[type="text"]:focus, select:focus { border-color: var(--accent); }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .helpers {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+
+  .volume {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .volume input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+  .volume .vlabel { color: var(--muted); font-size: 13px; min-width: 40px; text-align: right; }
+
+  .footer {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Spotify panel */
+  .spot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .spot-header h2 {
+    font-size: 16px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .spot-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--spotify);
+    display: grid;
+    place-items: center;
+  }
+  .spot-icon svg { width: 14px; height: 14px; color: black; }
+  .spot-status {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .spot-status.connected { color: var(--good); }
+
+  details {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  details summary {
+    cursor: pointer;
+    color: var(--muted);
+    list-style: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details[open] summary { color: var(--text); margin-bottom: 8px; }
+  details ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.6; }
+  details code {
+    background: rgba(0,0,0,0.4);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  .search-results {
+    margin-top: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(0,0,0,0.25);
+  }
+  .track-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+  .track-item:last-child { border-bottom: none; }
+  .track-item:hover { background: rgba(106,163,255,0.08); }
+  .track-item img {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    background: var(--panel-2);
+  }
+  .track-info { flex: 1; min-width: 0; }
+  .track-name {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .track-artist {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .selected-track {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(29,185,84,0.06);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .selected-track img {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+  }
+  .selected-track .info { flex: 1; min-width: 0; }
+  .selected-track .clear {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .selected-track .clear:hover { color: var(--bad); }
+
+  .source-toggle {
+    display: flex;
+    gap: 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 10px;
+  }
+  .source-toggle button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: 8px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+  }
+  .source-toggle button.active {
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+  .source-toggle button:disabled.active { background: var(--accent); }
+
+  .hidden { display: none !important; }
+
+  @media (max-width: 520px) {
+    .controls { grid-template-columns: 1fr; }
+    .settings { grid-template-columns: 1fr; }
+    .timer .display { font-size: 48px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="pixelBg"></canvas>
+
+  <div class="app">
+    <header>
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+          <path d="M10 21a2 2 0 0 0 4 0"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Beeper</h1>
+        <div class="subtitle">A simple interval reminder with custom sounds</div>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="timer-wrap">
+        <div class="timer">
+          <div class="display" id="display">30:00</div>
+          <div class="meta">
+            <span class="pill"><span class="status-dot stopped" id="statusDot"></span><span id="statusText">Idle</span></span>
+            <span class="pill" id="repsPill">Beeps: 0</span>
+            <span class="pill" id="nextPill">Next: —</span>
+          </div>
+        </div>
+        <canvas id="waveCanvas"></canvas>
+      </div>
+
+      <div class="controls">
+        <button class="primary" id="startBtn">Start</button>
+        <button id="stopBtn" disabled>Stop</button>
+        <button class="danger" id="resetBtn">Reset</button>
+      </div>
+
+      <div class="source-toggle" id="sourceToggle">
+        <button data-source="builtin" class="active">Built-in sound</button>
+        <button data-source="spotify" id="srcSpotifyBtn">Spotify track</button>
+      </div>
+
+      <div class="settings">
+        <div class="field">
+          <label for="minutes">Interval</label>
+          <div class="row">
+            <input type="number" id="minutes" min="0" max="999" value="30" />
+            <input type="number" id="seconds" min="0" max="59" value="0" />
+          </div>
+          <div class="helpers" style="margin-top: 4px;">
+            <span class="chip" data-preset="0:10">10s</span>
+            <span class="chip" data-preset="1:0">1m</span>
+            <span class="chip" data-preset="5:0">5m</span>
+            <span class="chip" data-preset="15:0">15m</span>
+            <span class="chip" data-preset="30:0">30m</span>
+            <span class="chip" data-preset="60:0">1h</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="repetitions">Repetitions</label>
+          <input type="number" id="repetitions" min="0" max="9999" value="0" />
+          <div class="helpers" style="margin-top: 4px;">
+            <span class="chip" data-reps="0">∞ Infinite</span>
+            <span class="chip" data-reps="1">1</span>
+            <span class="chip" data-reps="5">5</span>
+            <span class="chip" data-reps="10">10</span>
+            <span class="chip" data-reps="20">20</span>
+          </div>
+        </div>
+
+        <div class="field" id="builtinSoundField">
+          <label for="sound">Sound</label>
+          <select id="sound">
+            <option value="beep">Classic Beep</option>
+            <option value="chime">Soft Chime</option>
+            <option value="ding">Ding</option>
+            <option value="alarm">Alarm</option>
+            <option value="bell">Bell</option>
+            <option value="bloop">Bloop</option>
+            <option value="pulse">Pulse</option>
+            <option value="digital">Digital</option>
+          </select>
+          <button id="testBtn" style="margin-top: 4px;">Test sound</button>
+        </div>
+
+        <div class="field">
+          <label for="volume">Volume</label>
+          <div class="volume">
+            <input type="range" id="volume" min="0" max="100" value="60" />
+            <span class="vlabel" id="volLabel">60%</span>
+          </div>
+          <div class="field" style="margin-top: 6px;">
+            <label for="beepCount">Beeps per trigger</label>
+            <input type="number" id="beepCount" min="1" max="10" value="2" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Spotify section -->
+    <section class="card">
+      <div class="spot-header">
+        <h2>
+          <span class="spot-icon">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.6 14.4a.7.7 0 0 1-1 .2c-2.6-1.6-5.9-2-9.8-1.1a.7.7 0 1 1-.3-1.4c4.2-.9 7.9-.5 10.8 1.3.3.2.4.6.3 1zm1.2-2.7a.9.9 0 0 1-1.2.3c-3-1.8-7.5-2.4-11-1.3a.9.9 0 1 1-.5-1.7c4-1.2 9-.6 12.4 1.5.4.2.5.8.3 1.2zm.1-2.8c-3.6-2.1-9.5-2.3-12.9-1.3a1 1 0 1 1-.6-2c4-1.2 10.5-1 14.6 1.5a1 1 0 1 1-1.1 1.8z"/>
+            </svg>
+          </span>
+          Spotify
+        </h2>
+        <div class="spot-status" id="spotStatus">Not connected</div>
+      </div>
+
+      <div id="spotSetupHelp">
+        <details>
+          <summary>First-time setup (one minute) — click to expand</summary>
+          <ol>
+            <li>Go to <a href="https://developer.spotify.com/dashboard" target="_blank" style="color: var(--accent);">developer.spotify.com/dashboard</a> and sign in.</li>
+            <li>Click <b>Create app</b>. Name it anything (e.g. "Beeper").</li>
+            <li>Set <b>Redirect URI</b> to exactly: <code id="redirectUri"></code></li>
+            <li>Check <b>Web API</b> and <b>Web Playback SDK</b>, then save.</li>
+            <li>Open your new app, click <b>Settings</b>, copy the <b>Client ID</b> and paste it below.</li>
+            <li>Spotify <b>Premium</b> is required for full track playback.</li>
+          </ol>
+        </details>
+
+        <div class="field" style="margin-top: 10px;">
+          <label for="clientId">Spotify Client ID</label>
+          <input type="text" id="clientId" placeholder="Paste your Client ID here" autocomplete="off" />
+        </div>
+        <div id="fileWarning" class="hidden" style="margin-top: 10px; padding: 10px; border: 1px solid #4a2a32; background: rgba(248,113,113,0.08); border-radius: 10px; font-size: 13px; color: #ffd5d5;">
+          ⚠ You opened this from a local file. Spotify won't accept <code>file://</code> redirect URIs.
+          Run a tiny local server in this folder, e.g.<br>
+          <code style="display: inline-block; margin-top: 6px;">python -m http.server 5173</code>
+          then open <code>http://127.0.0.1:5173/beeper.html</code>.
+        </div>
+
+        <button class="spotify" id="connectBtn" style="margin-top: 12px;">Connect Spotify</button>
+      </div>
+
+      <div id="spotConnected" class="hidden">
+        <div class="field">
+          <label for="spotSearch">Search for a track</label>
+          <input type="text" id="spotSearch" placeholder="Song name, artist…" autocomplete="off" />
+          <div class="search-results hidden" id="searchResults"></div>
+        </div>
+
+        <div id="selectedTrackWrap" class="hidden">
+          <label style="margin-top: 12px; display: block;">Selected track</label>
+          <div class="selected-track" id="selectedTrack"></div>
+          <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button id="testSpotBtn">Preview track (5s)</button>
+            <button id="disconnectBtn" style="margin-left: auto;">Disconnect</button>
+          </div>
+        </div>
+
+        <div id="noTrackYet" style="margin-top: 10px;">
+          <button id="disconnectBtn2">Disconnect Spotify</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">Tip: keep this tab open. Settings and Spotify login save automatically.</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- Element refs ----------
+  const display = $('display');
+  const statusDot = $('statusDot');
+  const statusText = $('statusText');
+  const repsPill = $('repsPill');
+  const nextPill = $('nextPill');
+  const startBtn = $('startBtn');
+  const stopBtn = $('stopBtn');
+  const resetBtn = $('resetBtn');
+  const testBtn = $('testBtn');
+  const minutesEl = $('minutes');
+  const secondsEl = $('seconds');
+  const repsEl = $('repetitions');
+  const soundEl = $('sound');
+  const volumeEl = $('volume');
+  const volLabel = $('volLabel');
+  const beepCountEl = $('beepCount');
+  const toast = $('toast');
+  const builtinSoundField = $('builtinSoundField');
+  const sourceToggle = $('sourceToggle');
+  const srcSpotifyBtn = $('srcSpotifyBtn');
+
+  const spotStatus = $('spotStatus');
+  const clientIdEl = $('clientId');
+  const connectBtn = $('connectBtn');
+  const fileWarning = $('fileWarning');
+  const redirectUriEl = $('redirectUri');
+  const spotSetupHelp = $('spotSetupHelp');
+  const spotConnected = $('spotConnected');
+  const spotSearchEl = $('spotSearch');
+  const searchResults = $('searchResults');
+  const selectedTrackWrap = $('selectedTrackWrap');
+  const selectedTrackEl = $('selectedTrack');
+  const noTrackYet = $('noTrackYet');
+  const testSpotBtn = $('testSpotBtn');
+  const disconnectBtn = $('disconnectBtn');
+  const disconnectBtn2 = $('disconnectBtn2');
+
+  const STORAGE_KEY = 'beeper.settings.v2';
+  const SPOT_KEY = 'beeper.spotify.v1';
+
+  // ---------- App state ----------
+  let intervalSeconds = 30 * 60;
+  let remaining = intervalSeconds;
+  let tickHandle = null;
+  let running = false;
+  let beepsFired = 0;
+  let targetReps = 0;
+  let lastTickAt = 0;
+  let soundSource = 'builtin'; // or 'spotify'
+
+  // Audio
+  let audioCtx = null;
+  let masterGain = null;
+  let analyser = null;
+  let analyserData = null;
+  let visualizerActive = false;
+  let visualizerEndsAt = 0;
+  let spotifyVisualizerActive = false;
+
+  // ---------- Audio setup ----------
+  function ensureAudio() {
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctx();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 1;
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      analyserData = new Uint8Array(analyser.frequencyBinCount);
+      masterGain.connect(analyser);
+      analyser.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  function getVolume() {
+    return Math.max(0, Math.min(1, Number(volumeEl.value) / 100));
+  }
+
+  function tone({ freq = 880, duration = 0.18, type = 'sine', startGain = null, endGain = 0.0001, attack = 0.01, delay = 0, sweepTo = null }) {
+    const ctx = ensureAudio();
+    const now = ctx.currentTime + delay;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const v = (startGain !== null ? startGain : getVolume() * 0.5);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    if (sweepTo !== null) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(20, sweepTo), now + duration);
+    }
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, v), now + attack);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, endGain), now + duration);
+    osc.connect(gain).connect(masterGain);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+    visualizerActive = true;
+    visualizerEndsAt = Math.max(visualizerEndsAt, performance.now() + (delay + duration + 0.05) * 1000);
+  }
+
+  const SOUNDS = {
+    beep() { tone({ freq: 880, duration: 0.18, type: 'square' }); },
+    chime() {
+      tone({ freq: 880, duration: 0.45, type: 'sine' });
+      tone({ freq: 1320, duration: 0.5, type: 'sine', delay: 0.06 });
+      tone({ freq: 1760, duration: 0.55, type: 'sine', delay: 0.12 });
+    },
+    ding() {
+      tone({ freq: 1568, duration: 0.6, type: 'triangle', attack: 0.005 });
+      tone({ freq: 3136, duration: 0.5, type: 'sine', delay: 0.0, attack: 0.005, startGain: getVolume() * 0.18 });
+    },
+    alarm() {
+      const v = getVolume() * 0.55;
+      for (let i = 0; i < 4; i++) {
+        tone({ freq: 1000, duration: 0.12, type: 'square', delay: i * 0.18, startGain: v });
+        tone({ freq: 700, duration: 0.12, type: 'square', delay: i * 0.18 + 0.09, startGain: v });
+      }
+    },
+    bell() {
+      tone({ freq: 1318, duration: 1.2, type: 'sine', attack: 0.002 });
+      tone({ freq: 2637, duration: 1.0, type: 'sine', attack: 0.002, startGain: getVolume() * 0.2 });
+      tone({ freq: 3956, duration: 0.7, type: 'sine', attack: 0.002, startGain: getVolume() * 0.1 });
+    },
+    bloop() { tone({ freq: 220, duration: 0.25, type: 'sine', sweepTo: 880, attack: 0.005 }); },
+    pulse() {
+      const v = getVolume() * 0.5;
+      for (let i = 0; i < 3; i++) tone({ freq: 660, duration: 0.08, type: 'sine', delay: i * 0.13, startGain: v });
+    },
+    digital() {
+      tone({ freq: 1200, duration: 0.08, type: 'square' });
+      tone({ freq: 1600, duration: 0.08, type: 'square', delay: 0.1 });
+      tone({ freq: 2000, duration: 0.12, type: 'square', delay: 0.2 });
+    },
+  };
+
+  function playBuiltin(name) {
+    ensureAudio();
+    (SOUNDS[name] || SOUNDS.beep)();
+  }
+
+  function playBeepBurst() {
+    if (soundSource === 'spotify' && spot.selectedTrack) {
+      playSpotifyTrack();
+    } else {
+      const count = Math.max(1, Math.min(10, Number(beepCountEl.value) || 1));
+      const sound = soundEl.value;
+      for (let i = 0; i < count; i++) {
+        setTimeout(() => playBuiltin(sound), i * 700);
+      }
+    }
+  }
+
+  // ---------- Timer ----------
+  function format(secs) {
+    secs = Math.max(0, Math.floor(secs));
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+  }
+  function updateNextPill() {
+    if (!running) { nextPill.textContent = 'Next: —'; return; }
+    const at = new Date(Date.now() + remaining * 1000);
+    const hh = String(at.getHours()).padStart(2, '0');
+    const mm = String(at.getMinutes()).padStart(2, '0');
+    nextPill.textContent = `Next: ${hh}:${mm}`;
+  }
+  function readInterval() {
+    const m = Math.max(0, Math.min(999, Number(minutesEl.value) || 0));
+    const s = Math.max(0, Math.min(59, Number(secondsEl.value) || 0));
+    return Math.max(1, m * 60 + s);
+  }
+  function refreshDisplay() { display.textContent = format(remaining); }
+  function setStatus(label, state) {
+    statusText.textContent = label;
+    statusDot.classList.remove('running', 'stopped');
+    if (state) statusDot.classList.add(state);
+  }
+
+  function start() {
+    if (running) return;
+    intervalSeconds = readInterval();
+    if (remaining <= 0 || remaining > intervalSeconds) remaining = intervalSeconds;
+    targetReps = Math.max(0, Math.min(9999, Number(repsEl.value) || 0));
+    beepsFired = 0;
+    running = true;
+    lastTickAt = Date.now();
+    setStatus('Running', 'running');
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    updateRepsPill();
+    updateNextPill();
+    ensureAudio();
+    tickHandle = setInterval(tick, 250);
+    showToast('Started');
+  }
+  function stop() {
+    if (!running && !tickHandle) return;
+    running = false;
+    if (tickHandle) clearInterval(tickHandle);
+    tickHandle = null;
+    setStatus('Stopped', 'stopped');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    updateNextPill();
+    spotifyStopPlayback();
+    showToast('Stopped');
+  }
+  function reset() {
+    stop();
+    intervalSeconds = readInterval();
+    remaining = intervalSeconds;
+    beepsFired = 0;
+    setStatus('Idle', null);
+    refreshDisplay();
+    updateRepsPill();
+    updateNextPill();
+  }
+  function tick() {
+    const now = Date.now();
+    const dt = (now - lastTickAt) / 1000;
+    lastTickAt = now;
+    remaining -= dt;
+    if (remaining <= 0) {
+      playBeepBurst();
+      beepsFired += 1;
+      updateRepsPill();
+      if (targetReps > 0 && beepsFired >= targetReps) {
+        remaining = 0;
+        refreshDisplay();
+        stop();
+        setStatus('Finished', null);
+        showToast(`Done — ${beepsFired} beep${beepsFired === 1 ? '' : 's'} played`);
+        return;
+      }
+      remaining = intervalSeconds;
+      updateNextPill();
+    }
+    refreshDisplay();
+  }
+  function updateRepsPill() {
+    if (targetReps > 0) repsPill.textContent = `Beeps: ${beepsFired} / ${targetReps}`;
+    else repsPill.textContent = `Beeps: ${beepsFired}`;
+  }
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  // ---------- Settings persistence ----------
+  function saveSettings() {
+    const data = {
+      minutes: minutesEl.value,
+      seconds: secondsEl.value,
+      reps: repsEl.value,
+      sound: soundEl.value,
+      volume: volumeEl.value,
+      beepCount: beepCountEl.value,
+      soundSource,
+    };
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
+  }
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.minutes != null) minutesEl.value = d.minutes;
+      if (d.seconds != null) secondsEl.value = d.seconds;
+      if (d.reps != null) repsEl.value = d.reps;
+      if (d.sound) soundEl.value = d.sound;
+      if (d.volume != null) volumeEl.value = d.volume;
+      if (d.beepCount != null) beepCountEl.value = d.beepCount;
+      if (d.soundSource) soundSource = d.soundSource;
+    } catch (e) {}
+  }
+
+  // ---------- Source toggle ----------
+  function applySourceToggle() {
+    [...sourceToggle.querySelectorAll('button')].forEach(b => {
+      b.classList.toggle('active', b.dataset.source === soundSource);
+    });
+    if (soundSource === 'spotify') {
+      builtinSoundField.classList.add('hidden');
+    } else {
+      builtinSoundField.classList.remove('hidden');
+    }
+  }
+  sourceToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-source]');
+    if (!btn) return;
+    if (btn.dataset.source === 'spotify' && !spot.connected) {
+      showToast('Connect Spotify first');
+      // scroll to spotify section
+      spotSetupHelp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    soundSource = btn.dataset.source;
+    applySourceToggle();
+    saveSettings();
+  });
+
+  // =================================================================
+  //  Spotify integration (PKCE OAuth + Web Playback SDK)
+  // =================================================================
+  const spot = {
+    clientId: '',
+    accessToken: '',
+    refreshToken: '',
+    expiresAt: 0,
+    user: null,
+    connected: false,
+    deviceId: '',
+    player: null,
+    selectedTrack: null,
+  };
+
+  function loadSpot() {
+    try {
+      const raw = localStorage.getItem(SPOT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      Object.assign(spot, d);
+    } catch (e) {}
+  }
+  function saveSpot() {
+    const data = {
+      clientId: spot.clientId,
+      accessToken: spot.accessToken,
+      refreshToken: spot.refreshToken,
+      expiresAt: spot.expiresAt,
+      user: spot.user,
+      selectedTrack: spot.selectedTrack,
+    };
+    try { localStorage.setItem(SPOT_KEY, JSON.stringify(data)); } catch (e) {}
+  }
+  function clearSpot() {
+    spot.accessToken = '';
+    spot.refreshToken = '';
+    spot.expiresAt = 0;
+    spot.user = null;
+    spot.connected = false;
+    spot.deviceId = '';
+    if (spot.player) { try { spot.player.disconnect(); } catch (e) {} spot.player = null; }
+    saveSpot();
+    renderSpotUI();
+  }
+
+  // PKCE helpers
+  function randomString(len) {
+    const arr = new Uint8Array(len);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(b => ('0' + b.toString(16)).slice(-2)).join('').slice(0, len);
+  }
+  async function sha256(buf) {
+    return new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+  }
+  function base64url(bytes) {
+    let str = '';
+    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function isUsableOrigin() {
+    return window.location.protocol === 'http:' || window.location.protocol === 'https:';
+  }
+  function getRedirectUri() {
+    if (!isUsableOrigin()) return '';
+    return window.location.origin + window.location.pathname;
+  }
+
+  async function startAuth() {
+    const cid = clientIdEl.value.trim();
+    if (!cid) { showToast('Paste your Spotify Client ID first'); clientIdEl.focus(); return; }
+    if (!isUsableOrigin()) {
+      showToast('Open this page over http(s) first — see warning above');
+      return;
+    }
+    spot.clientId = cid;
+    saveSpot();
+
+    const verifier = randomString(64);
+    const challenge = base64url(await sha256(new TextEncoder().encode(verifier)));
+    sessionStorage.setItem('beeper.spot.verifier', verifier);
+
+    const scope = [
+      'streaming',
+      'user-read-email',
+      'user-read-private',
+      'user-modify-playback-state',
+      'user-read-playback-state',
+    ].join(' ');
+
+    const params = new URLSearchParams({
+      client_id: cid,
+      response_type: 'code',
+      redirect_uri: getRedirectUri(),
+      code_challenge_method: 'S256',
+      code_challenge: challenge,
+      scope,
+    });
+    window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
+  }
+
+  async function exchangeCode(code) {
+    const verifier = sessionStorage.getItem('beeper.spot.verifier');
+    if (!verifier) throw new Error('Missing PKCE verifier');
+    const body = new URLSearchParams({
+      client_id: spot.clientId,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: getRedirectUri(),
+      code_verifier: verifier,
+    });
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    if (!r.ok) throw new Error('Token exchange failed: ' + r.status);
+    const data = await r.json();
+    spot.accessToken = data.access_token;
+    spot.refreshToken = data.refresh_token || spot.refreshToken;
+    spot.expiresAt = Date.now() + (data.expires_in - 30) * 1000;
+    saveSpot();
+    sessionStorage.removeItem('beeper.spot.verifier');
+  }
+
+  async function refreshAccessToken() {
+    if (!spot.refreshToken) throw new Error('No refresh token');
+    const body = new URLSearchParams({
+      client_id: spot.clientId,
+      grant_type: 'refresh_token',
+      refresh_token: spot.refreshToken,
+    });
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    if (!r.ok) throw new Error('Refresh failed: ' + r.status);
+    const data = await r.json();
+    spot.accessToken = data.access_token;
+    if (data.refresh_token) spot.refreshToken = data.refresh_token;
+    spot.expiresAt = Date.now() + (data.expires_in - 30) * 1000;
+    saveSpot();
+    return spot.accessToken;
+  }
+
+  async function getValidToken() {
+    if (!spot.accessToken) return null;
+    if (Date.now() >= spot.expiresAt) {
+      try { await refreshAccessToken(); }
+      catch (e) { clearSpot(); return null; }
+    }
+    return spot.accessToken;
+  }
+
+  async function fetchProfile() {
+    const t = await getValidToken();
+    if (!t) return null;
+    const r = await fetch('https://api.spotify.com/v1/me', { headers: { Authorization: 'Bearer ' + t } });
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  async function ensurePlayer() {
+    if (spot.player) return spot.player;
+    if (!window.Spotify) {
+      // SDK not yet ready; wait
+      await new Promise(res => {
+        const i = setInterval(() => { if (window.Spotify) { clearInterval(i); res(); } }, 100);
+      });
+    }
+    spot.player = new Spotify.Player({
+      name: 'Beeper',
+      getOAuthToken: async (cb) => { const t = await getValidToken(); cb(t); },
+      volume: getVolume(),
+    });
+    spot.player.addListener('ready', ({ device_id }) => { spot.deviceId = device_id; });
+    spot.player.addListener('not_ready', () => { spot.deviceId = ''; });
+    spot.player.addListener('initialization_error', ({ message }) => console.warn('init error', message));
+    spot.player.addListener('authentication_error', ({ message }) => { console.warn('auth error', message); clearSpot(); });
+    spot.player.addListener('account_error', ({ message }) => {
+      showToast('Spotify Premium required for playback');
+      console.warn('account error', message);
+    });
+    await spot.player.connect();
+    // Wait for device
+    let waited = 0;
+    while (!spot.deviceId && waited < 8000) {
+      await new Promise(r => setTimeout(r, 200));
+      waited += 200;
+    }
+    return spot.player;
+  }
+
+  async function playSpotifyTrack() {
+    if (!spot.selectedTrack) return;
+    const t = await getValidToken();
+    if (!t) return;
+    await ensurePlayer();
+    if (!spot.deviceId) { showToast('Spotify player not ready yet'); return; }
+    const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(spot.deviceId)}`, {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris: [spot.selectedTrack.uri] }),
+    });
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      if (r.status === 403) showToast('Playback blocked — Premium required');
+      else showToast('Playback failed (' + r.status + ')');
+      console.warn('play failed', r.status, txt);
+      return;
+    }
+    spotifyVisualizerActive = true;
+    setTimeout(() => { spotifyVisualizerActive = false; }, 30000);
+  }
+
+  async function spotifyStopPlayback() {
+    if (!spot.connected || !spot.deviceId) return;
+    const t = await getValidToken();
+    if (!t) return;
+    fetch('https://api.spotify.com/v1/me/player/pause?device_id=' + encodeURIComponent(spot.deviceId), {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + t },
+    }).catch(() => {});
+    spotifyVisualizerActive = false;
+  }
+
+  async function searchTracks(query) {
+    const t = await getValidToken();
+    if (!t || !query.trim()) return [];
+    const r = await fetch(`https://api.spotify.com/v1/search?type=track&limit=8&q=${encodeURIComponent(query)}`, {
+      headers: { Authorization: 'Bearer ' + t },
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.tracks?.items || [];
+  }
+
+  // ---------- Spotify UI ----------
+  function renderSpotUI() {
+    if (spot.connected) {
+      spotSetupHelp.classList.add('hidden');
+      spotConnected.classList.remove('hidden');
+      spotStatus.textContent = spot.user ? `Connected as ${spot.user.display_name || spot.user.id}` : 'Connected';
+      spotStatus.classList.add('connected');
+      srcSpotifyBtn.disabled = false;
+      if (spot.selectedTrack) {
+        renderSelectedTrack();
+        selectedTrackWrap.classList.remove('hidden');
+        noTrackYet.classList.add('hidden');
+      } else {
+        selectedTrackWrap.classList.add('hidden');
+        noTrackYet.classList.remove('hidden');
+      }
+    } else {
+      spotSetupHelp.classList.remove('hidden');
+      spotConnected.classList.add('hidden');
+      spotStatus.textContent = 'Not connected';
+      spotStatus.classList.remove('connected');
+      // Reset source if it was spotify
+      if (soundSource === 'spotify') {
+        soundSource = 'builtin';
+        applySourceToggle();
+        saveSettings();
+      }
+    }
+  }
+
+  function renderSelectedTrack() {
+    const t = spot.selectedTrack;
+    if (!t) { selectedTrackEl.innerHTML = ''; return; }
+    selectedTrackEl.innerHTML = `
+      <img src="${t.image || ''}" alt="" />
+      <div class="info">
+        <div class="track-name">${escapeHtml(t.name)}</div>
+        <div class="track-artist">${escapeHtml(t.artists)}</div>
+      </div>
+      <button class="clear" title="Clear track">✕</button>
+    `;
+    selectedTrackEl.querySelector('.clear').addEventListener('click', () => {
+      spot.selectedTrack = null;
+      saveSpot();
+      renderSpotUI();
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+  }
+
+  // Search input
+  let searchDebounce = null;
+  spotSearchEl.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    const q = spotSearchEl.value.trim();
+    if (!q) { searchResults.classList.add('hidden'); searchResults.innerHTML = ''; return; }
+    searchDebounce = setTimeout(async () => {
+      const items = await searchTracks(q);
+      if (!items.length) {
+        searchResults.classList.remove('hidden');
+        searchResults.innerHTML = '<div style="padding: 12px; color: var(--muted); font-size: 13px;">No results</div>';
+        return;
+      }
+      searchResults.classList.remove('hidden');
+      searchResults.innerHTML = items.map((it, idx) => `
+        <div class="track-item" data-idx="${idx}">
+          <img src="${it.album?.images?.[2]?.url || it.album?.images?.[0]?.url || ''}" alt="" />
+          <div class="track-info">
+            <div class="track-name">${escapeHtml(it.name)}</div>
+            <div class="track-artist">${escapeHtml(it.artists.map(a => a.name).join(', '))}</div>
+          </div>
+        </div>
+      `).join('');
+      [...searchResults.querySelectorAll('.track-item')].forEach((el, i) => {
+        el.addEventListener('click', () => {
+          const it = items[i];
+          spot.selectedTrack = {
+            uri: it.uri,
+            id: it.id,
+            name: it.name,
+            artists: it.artists.map(a => a.name).join(', '),
+            image: it.album?.images?.[1]?.url || it.album?.images?.[0]?.url || '',
+          };
+          saveSpot();
+          searchResults.classList.add('hidden');
+          spotSearchEl.value = '';
+          renderSpotUI();
+          // auto-switch source to spotify
+          soundSource = 'spotify';
+          applySourceToggle();
+          saveSettings();
+          showToast('Track selected');
+        });
+      });
+    }, 300);
+  });
+
+  testSpotBtn?.addEventListener('click', async () => {
+    if (!spot.selectedTrack) return;
+    await playSpotifyTrack();
+    setTimeout(() => spotifyStopPlayback(), 5000);
+  });
+
+  connectBtn.addEventListener('click', startAuth);
+  disconnectBtn?.addEventListener('click', clearSpot);
+  disconnectBtn2?.addEventListener('click', clearSpot);
+  clientIdEl.addEventListener('change', () => {
+    spot.clientId = clientIdEl.value.trim();
+    saveSpot();
+  });
+
+  // Handle OAuth callback
+  async function handleAuthCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const error = params.get('error');
+    if (error) {
+      showToast('Spotify auth error: ' + error);
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+    if (!code) return;
+    // remove code from URL
+    window.history.replaceState({}, '', window.location.pathname);
+    if (!spot.clientId) { showToast('Missing Client ID'); return; }
+    try {
+      await exchangeCode(code);
+      spot.user = await fetchProfile();
+      spot.connected = !!spot.accessToken;
+      saveSpot();
+      renderSpotUI();
+      showToast('Spotify connected');
+    } catch (e) {
+      console.warn(e);
+      showToast('Spotify connection failed');
+      clearSpot();
+    }
+  }
+
+  async function tryRestoreSession() {
+    if (!spot.accessToken && !spot.refreshToken) return;
+    const t = await getValidToken();
+    if (!t) { renderSpotUI(); return; }
+    // verify token by fetching profile
+    const me = await fetchProfile();
+    if (me) {
+      spot.user = me;
+      spot.connected = true;
+      saveSpot();
+    } else {
+      clearSpot();
+    }
+    renderSpotUI();
+  }
+
+  // =================================================================
+  //  Pixel-art animations
+  // =================================================================
+  const bgCanvas = $('pixelBg');
+  const bgCtx = bgCanvas.getContext('2d');
+  const waveCanvas = $('waveCanvas');
+  const waveCtx = waveCanvas.getContext('2d');
+
+  // Background sprite stars/clouds
+  const PIXEL = 4;
+  const stars = [];
+  const sprites = [];
+
+  function resizeCanvases() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    bgCanvas.width = Math.floor(window.innerWidth * dpr);
+    bgCanvas.height = Math.floor(window.innerHeight * dpr);
+    bgCanvas.style.width = window.innerWidth + 'px';
+    bgCanvas.style.height = window.innerHeight + 'px';
+    bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const wcRect = waveCanvas.getBoundingClientRect();
+    waveCanvas.width = Math.floor(wcRect.width * dpr);
+    waveCanvas.height = Math.floor(wcRect.height * dpr);
+    waveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function initPixelArt() {
+    stars.length = 0;
+    sprites.length = 0;
+    const W = window.innerWidth, H = window.innerHeight;
+    const starCount = Math.floor((W * H) / 12000);
+    for (let i = 0; i < starCount; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        size: Math.random() < 0.6 ? 2 : (Math.random() < 0.8 ? 3 : 4),
+        twinkle: Math.random() * Math.PI * 2,
+        speed: 0.2 + Math.random() * 0.6,
+        hue: Math.floor(Math.random() * 60) - 30, // -30..30 cool tones
+      });
+    }
+    // floating pixel sprites — little colored squares drifting
+    const spriteCount = 12;
+    const palettes = [
+      ['#6aa3ff', '#4f87e6'],
+      ['#8b5cf6', '#a78bfa'],
+      ['#1db954', '#1ed760'],
+      ['#f59e0b', '#fbbf24'],
+      ['#ec4899', '#f472b6'],
+    ];
+    for (let i = 0; i < spriteCount; i++) {
+      const pal = palettes[Math.floor(Math.random() * palettes.length)];
+      sprites.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.2 - 0.1,
+        size: 4 + Math.floor(Math.random() * 3) * 2, // 4, 6, 8
+        color: pal[Math.floor(Math.random() * pal.length)],
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  function drawPixelHeart(x, y, size, color) {
+    bgCtx.fillStyle = color;
+    // tiny pixel heart pattern (5x4 grid scaled)
+    const pat = [
+      [0,1,0,1,0],
+      [1,1,1,1,1],
+      [0,1,1,1,0],
+      [0,0,1,0,0],
+    ];
+    for (let r = 0; r < pat.length; r++) {
+      for (let c = 0; c < pat[r].length; c++) {
+        if (pat[r][c]) bgCtx.fillRect(x + c * size, y + r * size, size, size);
+      }
+    }
+  }
+
+  function drawPixelDiamond(x, y, size, color) {
+    bgCtx.fillStyle = color;
+    const pat = [
+      [0,0,1,0,0],
+      [0,1,1,1,0],
+      [1,1,1,1,1],
+      [0,1,1,1,0],
+      [0,0,1,0,0],
+    ];
+    for (let r = 0; r < pat.length; r++) {
+      for (let c = 0; c < pat[r].length; c++) {
+        if (pat[r][c]) bgCtx.fillRect(x + c * size, y + r * size, size, size);
+      }
+    }
+  }
+
+  let lastT = performance.now();
+  function animate(now) {
+    const dt = Math.min(50, now - lastT);
+    lastT = now;
+
+    // -------- Background --------
+    const W = window.innerWidth, H = window.innerHeight;
+    bgCtx.clearRect(0, 0, W, H);
+
+    // subtle gradient blobs (raster — not pixelated, but soft)
+    const grad = bgCtx.createRadialGradient(W * 0.8, -50, 50, W * 0.8, -50, 600);
+    grad.addColorStop(0, 'rgba(106,163,255,0.10)');
+    grad.addColorStop(1, 'transparent');
+    bgCtx.fillStyle = grad;
+    bgCtx.fillRect(0, 0, W, H);
+    const grad2 = bgCtx.createRadialGradient(-50, H + 50, 50, -50, H + 50, 600);
+    grad2.addColorStop(0, 'rgba(139,92,246,0.10)');
+    grad2.addColorStop(1, 'transparent');
+    bgCtx.fillStyle = grad2;
+    bgCtx.fillRect(0, 0, W, H);
+
+    // stars
+    for (const s of stars) {
+      s.twinkle += dt * 0.002 * s.speed;
+      s.y -= dt * 0.005 * s.speed;
+      if (s.y < -10) { s.y = H + 10; s.x = Math.random() * W; }
+      const a = 0.35 + Math.sin(s.twinkle) * 0.25;
+      bgCtx.fillStyle = `rgba(220, 230, 255, ${a.toFixed(3)})`;
+      bgCtx.fillRect(Math.floor(s.x), Math.floor(s.y), s.size, s.size);
+    }
+
+    // sprites
+    for (const sp of sprites) {
+      sp.x += sp.vx * dt * 0.06;
+      sp.y += sp.vy * dt * 0.06;
+      sp.phase += dt * 0.002;
+      if (sp.x < -20) sp.x = W + 20;
+      if (sp.x > W + 20) sp.x = -20;
+      if (sp.y < -20) sp.y = H + 20;
+      if (sp.y > H + 20) sp.y = -20;
+      const bob = Math.sin(sp.phase) * 4;
+
+      // alpha lower to keep subtle
+      bgCtx.globalAlpha = 0.55;
+      const r = Math.floor(sp.x / sp.size) * sp.size;
+      const c = Math.floor((sp.y + bob) / sp.size) * sp.size;
+      // pick shape based on size
+      if (sp.size === 8) drawPixelDiamond(r, c, 2, sp.color);
+      else if (sp.size === 6) drawPixelHeart(r, c, 1, sp.color);
+      else { bgCtx.fillStyle = sp.color; bgCtx.fillRect(r, c, sp.size, sp.size); }
+      bgCtx.globalAlpha = 1;
+    }
+
+    // -------- Wave visualizer (timer card) --------
+    drawVisualizer();
+
+    requestAnimationFrame(animate);
+  }
+
+  function drawVisualizer() {
+    const cw = waveCanvas.clientWidth;
+    const ch = waveCanvas.clientHeight;
+    waveCtx.clearRect(0, 0, cw, ch);
+
+    const active = (visualizerActive && performance.now() < visualizerEndsAt) || spotifyVisualizerActive;
+    if (visualizerActive && performance.now() >= visualizerEndsAt) visualizerActive = false;
+
+    // Pixel grid: cells of CELL px
+    const CELL = 4;
+    const bars = Math.floor(cw / (CELL * 3));
+    const gap = CELL;
+    const barWidth = CELL * 2;
+    const totalWidth = bars * (barWidth + gap) - gap;
+    const xStart = Math.floor((cw - totalWidth) / 2);
+
+    // Get amplitudes
+    let amps = new Array(bars).fill(0);
+    if (active) {
+      if (visualizerActive && analyser) {
+        analyser.getByteFrequencyData(analyserData);
+        const binCount = analyserData.length;
+        for (let i = 0; i < bars; i++) {
+          const idx = Math.floor((i / bars) * binCount);
+          amps[i] = analyserData[idx] / 255;
+        }
+      } else if (spotifyVisualizerActive) {
+        // synthesized rhythmic wave for Spotify (we can't analyze remote audio)
+        const t = performance.now() / 1000;
+        for (let i = 0; i < bars; i++) {
+          const f = i / bars;
+          const v = 0.5
+            + 0.4 * Math.sin(t * 4 + f * 8)
+            + 0.25 * Math.sin(t * 7 + f * 3)
+            + 0.15 * Math.sin(t * 13 + f * 17);
+          amps[i] = Math.max(0, Math.min(1, (v + 1) / 2 * 0.8 + 0.1));
+        }
+      }
+    } else {
+      // idle state: gentle low waveform so it doesn't look dead
+      const t = performance.now() / 1000;
+      for (let i = 0; i < bars; i++) {
+        const f = i / bars;
+        amps[i] = 0.05 + 0.05 * (0.5 + 0.5 * Math.sin(t * 1.5 + f * 6));
+      }
+    }
+
+    for (let i = 0; i < bars; i++) {
+      const amp = amps[i];
+      const heightPx = Math.max(CELL, Math.floor((ch - 4) * amp / CELL) * CELL);
+      const x = xStart + i * (barWidth + gap);
+      const y = ch - heightPx;
+      // gradient color based on intensity (pixel-stepped)
+      const cellsHigh = heightPx / CELL;
+      for (let k = 0; k < cellsHigh; k++) {
+        const frac = k / Math.max(1, cellsHigh - 1);
+        // bottom blue, top accent
+        const r = Math.floor(60 + frac * 180);
+        const g = Math.floor(120 + (1 - frac) * 80);
+        const b = Math.floor(200 + frac * 40);
+        const alpha = active ? 0.95 : 0.4;
+        waveCtx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        waveCtx.fillRect(x, ch - (k + 1) * CELL, barWidth, CELL);
+      }
+    }
+  }
+
+  // =================================================================
+  //  Wire-up & init
+  // =================================================================
+  startBtn.addEventListener('click', start);
+  stopBtn.addEventListener('click', stop);
+  resetBtn.addEventListener('click', reset);
+  testBtn.addEventListener('click', () => { ensureAudio(); playBuiltin(soundEl.value); });
+
+  [minutesEl, secondsEl, repsEl, soundEl, volumeEl, beepCountEl].forEach(el => {
+    el.addEventListener('change', () => {
+      saveSettings();
+      if (!running) {
+        intervalSeconds = readInterval();
+        remaining = intervalSeconds;
+        refreshDisplay();
+      }
+    });
+    el.addEventListener('input', () => {
+      if (el === volumeEl) {
+        volLabel.textContent = `${volumeEl.value}%`;
+        if (spot.player) { try { spot.player.setVolume(getVolume()); } catch (e) {} }
+      }
+    });
+  });
+
+  document.querySelectorAll('.chip[data-preset]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const [m, s] = chip.dataset.preset.split(':').map(Number);
+      minutesEl.value = m;
+      secondsEl.value = s;
+      saveSettings();
+      if (!running) { intervalSeconds = readInterval(); remaining = intervalSeconds; refreshDisplay(); }
+    });
+  });
+  document.querySelectorAll('.chip[data-reps]').forEach(chip => {
+    chip.addEventListener('click', () => { repsEl.value = chip.dataset.reps; saveSettings(); });
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && running) lastTickAt = Date.now();
+  });
+
+  window.addEventListener('resize', () => { resizeCanvases(); initPixelArt(); });
+
+  // Init sequence
+  loadSettings();
+  loadSpot();
+  if (spot.clientId) clientIdEl.value = spot.clientId;
+  if (isUsableOrigin()) {
+    redirectUriEl.textContent = getRedirectUri();
+  } else {
+    redirectUriEl.textContent = '(serve over http first — see warning below)';
+    fileWarning.classList.remove('hidden');
+    connectBtn.disabled = true;
+  }
+  volLabel.textContent = `${volumeEl.value}%`;
+  intervalSeconds = readInterval();
+  remaining = intervalSeconds;
+  refreshDisplay();
+  setStatus('Idle', null);
+  updateRepsPill();
+  applySourceToggle();
+  renderSpotUI();
+  resizeCanvases();
+  initPixelArt();
+  requestAnimationFrame(animate);
+
+  // OAuth callback / restore
+  (async () => {
+    if (window.location.search.includes('code=') || window.location.search.includes('error=')) {
+      await handleAuthCallback();
+    } else {
+      await tryRestoreSession();
+    }
+  })();
+})();
+</script>
+</body>
+</html>
